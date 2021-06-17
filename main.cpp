@@ -586,7 +586,7 @@ int main(int argc, char** argv) {
     int cat; // = 1;
     int bloc; // =1;
     int n; //=15 ;
-    int id ; //;
+    int id =1; //;
     int intra; //=1;
     int T; //=48;
 
@@ -598,30 +598,12 @@ int main(int argc, char** argv) {
         symetrie = atoi(argv[5]);
         cat = atoi(argv[6]);
         intra = atoi(argv[7]);
-        id = atoi(argv[8]);
     }
 
 
-
-
-//    n=10 ;
-//    for (T=24 ; T <=48 ; T*=2) {
-//        for (id=1; id <=20 ; id++) {
-//            generation(n, T, demande_type, symetrie, cat, bloc, id, intra) ;
-//        }
-//    }
-
-//    n=20;
-//    for (T=24 ; T <=48 ; T*=2) {
-//        for (id=1; id <=20 ; id++) {
-//            generation(n, T, demande_type, symetrie, cat, bloc, id, intra) ;
-//        }
-//    }
-
-    T=24;
-        for (id=1; id <=20 ; id++) {
-            generation(n, T, demande_type, symetrie, cat, bloc, id, intra) ;
-        }
+    for (id=1; id <=20 ; id++) {
+        generation(n, T, demande_type, symetrie, cat, bloc, id, intra) ;
+    }
 
 
     return 0;
