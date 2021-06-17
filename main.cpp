@@ -2,18 +2,15 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string>
-#include <math.h>
 #include <ctime>
 #include <sstream>
 #include <fstream>
+#include <cmath>
+
+#include "demand.h"
+#include "corr.h"
 
 using namespace std ;
-
-#define nbGen 8 
-#define nbInst 25
-#define nbData 10
-#define T 24
-#define ratio_reserve 0.03
 
 string to_string2(int number){
     string number_string = "";
@@ -45,519 +42,587 @@ string to_string2(int number){
 }
 
 
-int main() {
+void setInterval(double* vect, double vmax, double vmin, int l1, int l2) {
+    for (int i = l1 ; i <= l2 ; i++) {
+        vect[i] = vect[i]*(vmax-vmin) + vmin ;
+    }
+}
 
-    double** nb_of_gen = new double*[nbInst] ;
-    for (int i=0 ; i < nbInst ; i++) {
-        nb_of_gen[i] = new double[nbGen] ;
+void generation(int n, int T, int demande, int symetrie, int cat, int bloc, int id, int intra) {
+
+    double pas = 1 ; //number of time steps per hour
+
+    //Nom de l'instance
+
+    string s_n = to_string2(n) + "_" ;
+
+    string s_T = s_n + to_string2(T) ;
+    s_T = s_T + "_" ;
+
+    string s_bloc = s_T + to_string2(bloc);
+    s_bloc = s_bloc + "_" ;
+
+    string s_demande = s_bloc + to_string2(demande) ;
+    s_demande = s_demande + "_" ;
+
+    string  s_symetrie = s_demande + to_string2(symetrie) ;
+    s_symetrie = s_symetrie + "_" ;
+
+    string s_cat = s_symetrie + to_string2(cat) ;
+    s_cat = s_cat + "_" ;
+
+    string s_intra = s_cat + to_string2(intra) ;
+    s_intra = s_intra + "_" ;
+
+    string s_id = s_intra + to_string2(id) ;
+    string file = s_id + ".txt" ;
+
+    const char* fileChar = file.c_str() ;
+    ofstream fichier(fileChar);
+
+    fichier << "n = "<< n << " ; " << endl ;
+    fichier << "T = "<< T << " ; " << endl ;
+
+    /*fichier << "Bloc : " << bloc << endl ;
+    fichier << "Demande : " << demande << endl ;
+    fichier << "Symetrie : " << symetrie << endl ;
+    fichier << "Categorie : " << cat << endl ;*/
+    int n_sym = n ;
+    int* sym = new int[n] ;
+    for (int i= 0 ; (i<n) ; i++) {
+        sym[i] = 1 ;
     }
 
-    double* Pmax = new double[nbGen] ;
-    double* Pmin = new double[nbGen] ;
-    double* L = new double[nbGen] ;
-    double* SU = new double[nbGen] ;
-    double* RU = new double[nbGen] ;
-    double* Tcold = new double[nbGen] ;
-    double* CostLow = new double[nbGen] ;
-    double* CostHigh = new double[nbGen] ;
-    double* hc = new double[nbGen] ;
-    double* cc = new double[nbGen] ;
+    double* Pmax = new double[n];
+    double* Pmin = new double[n];
+    double* c0 = new double[n] ;
+    double* cp = new double[n] ;
+    double* cf = new double[n] ;
+    double* L = new double[n] ;
+    double* l = new double[n] ;
+    double* S = new double[n] ;
+    int* n_k = new int[n] ;
 
-    double* demand = new double[T] ;
+    int* First = new int[n];
+    int* Last = new int[n] ;
 
-    ifstream f_data("gen_data.txt", ios::in);
-    ifstream f_nb("gen_nb.txt", ios::in);
-    ifstream f_demand("demand.txt", ios::in);
-    //demand.txt est la demande du dataset de Carrion et al. Dans l'article de Knueven et Ostrowski sur l'aggrégation, ils donnent la demande en pourcentage de Pmax, et on obtient des pourcentages différents.
-
-    string ligne;
-    int guff ;
-
-    ////////////////////////// Récupération des données ////////////////////////
-
-    int sommePmax = 0 ;
-
-    // récupération des données de gen_data
-    getline(f_data, ligne);
-    for (int i=0 ; i < nbGen ; i++) {
-        f_data >> guff;
-        f_data >> Pmax[i] ;
-        f_data >> Pmin[i] ;
-        f_data >> L[i] ;
-        f_data >> RU[i] ;
-        f_data >> Tcold[i] ;
-        getline(f_data, ligne);
-
-        sommePmax+= Pmax[i] ;
+    for (int i= 0 ; (i<n) ; i++) {
+        First[i] = 0 ;
+        Last[i] = 0 ;
     }
 
-    getline(f_data, ligne);
-    getline(f_data, ligne);
-    for (int i=0 ; i < nbGen ; i++) {
-        f_data >> guff;
-        f_data >> CostLow[i] ;
-        f_data >> CostHigh[i] ;
-        f_data >> hc[i] ;
-        f_data >> cc[i] ;
-        getline(f_data, ligne);
-    }
+    int nS= 1 ; // number of geographical sites
 
-    // récupération des données de gen_nb
-    getline(f_nb, ligne);
-    for (int i=0 ; i < nbInst ; i++) {
-        f_nb >> guff ;
-        f_nb >> guff ;
-        for (int gen = 0 ; gen < nbGen ; gen++) {
-            f_nb >> nb_of_gen[i][gen] ;
+    int Pmin_Pmax_dizaines=1;
+
+    //Gestion symétries et sites
+    if (symetrie && bloc <3) {
+
+        //sym : vecteur de répétition des unités.
+        //il y a des groupes de taille 1 à n/symetrie d'unités semblables
+        //n_sym : nombre d'unités différentes
+
+        int sym_factor = symetrie ;
+        int sum = 0 ;
+        for (int i= 0 ; (i<n) && (sum < n); i++) {
+            sym[i] = (rand() % (n/sym_factor)) + 1 ;
+            sum+= sym[i] ;
+            if (sum >= n) {
+                n_sym= i;
+                sym[i] = sym[i] - (sum-n) ;
+                sum = n+1 ;
+            }
         }
-        getline(f_nb, ligne);
-    }
-
-    //récupération demande
-    for (int t=0 ; t < T ; t++) {
-        f_demand >> demand[t] ;
-        demand[t] /= sommePmax ;
-        cout << demand[t] << "; " ;
-    }
-
-    cout << endl ;
-    ////////////////////////////////////////////////////////////////////////////
-
-
-    //////// Création instances ///////
-
-
-    for (int inst = 0 ; inst < nbInst ; inst++) {
-
-        string name = "ost_"+ to_string2(inst)+".txt" ;
-        const char* fileChar = name.c_str() ;
-        ofstream fichier(fileChar) ;
-
-        int n=0 ;
-        for (int i=0 ; i < nbGen ; i++) {
-            n+= nb_of_gen[i];
+        for (int i = n_sym+1 ; i < n ; i++) {
+            sym[i] = 0 ;
         }
 
-        fichier << "n = "<< n << " ; " << endl ;
-        fichier << "T = "<< T << " ; " << endl ;
 
-        //pas d'initialisation=pas de contraintes dynamiques à l'instant t=1
-        fichier << "Init = [ " ;
+
+
+        //un seul groupe de symétrie : symetrie=n
+        /* if (symetrie==n) {
+            sym[0] = n ;
+            for (int i = 1 ; i < n ; i++) {
+                sym[i] = 0 ;
+            }
+
+        }*/
+
+
+        //n/2 groupes de symetries
+        /*      if (symetrie==n) {
+            for (int i = 0 ; i < n/2 ; i++) {
+                sym[i] = 2 ;
+            }
+            for (int i=n/2 ; i < n ; i++) {
+                sym[i] =0 ;
+            }
+
+        }*/
+
+        //passage de n_sym à nk et First / Last
+        int count = 0 ;
         int i=0 ;
         while (i < n) {
-            fichier << -1 << " " ;
+            First[i] = 1 ;
+            for (int j = 0 ; j < sym[count]; j++) {
+                n_k[i] = count+1 ;
+                i++ ;
+            }
+            Last[i-1] = 1 ;
+            count ++ ;
+
+        }
+
+
+    }
+
+    if (intra) {
+
+        //S : délimiteur de sites
+
+        if (!symetrie) { // on définit un vecteur sym juste pour l'intrasite
+
+            int sym_factor = 6 ;
+            int sum = 0 ;
+            for (int i= 0 ; (i<n) && (sum < n); i++) {
+                sym[i] = (rand() % sym_factor) + 1 ;
+                sum+= sym[i] ;
+                if (sum >= n) {
+                    n_sym= i;
+                    sym[i] = sym[i] - (sum-n) ;
+                    sum = n+1 ;
+                }
+            }
+            for (int i = n_sym+1 ; i < n ; i++) {
+                sym[i] = 0 ;
+            }
+
+            nS = n_sym+1 ;
+
+            for (int i = 0 ; i < n ; i++) {
+                S[i] = 0 ;
+            }
+
+            int count = 0 ;
+            int i=0 ;
+            while (i < n) {
+                S[i] = 1 ;
+                for (int j = 0 ; j < sym[count]; j++) {
+                    n_k[i] = count+1 ;
+                    i++ ;
+                }
+                //Last[i-1] = 1 ;
+                count ++ ;
+
+            }
+        }
+//        int unit=0 ;
+//        int gp_sym=0 ;
+//        S[unit]=1 ;
+//        int F = 1 ; // une chance sur F que les deux groupes ne soient pas sur le même site
+//        while (unit<n) {
+//            // on décide si le groupe de symétrie de i est sur un site différent de i-1 ou pas
+//            if (unit!=0) {
+//                int nombre = (rand() % F) ;
+//                if (nombre == 1) {
+//                    S[unit] = 1 ;
+//                    nS++ ;
+//                }
+//                else {
+//                    S[unit] = 0 ;
+//                }
+//            }
+//            int nb_sym = sym[gp_sym] ;
+//            for (int k = 0; k < nb_sym-1 ; k++ ) {
+//                unit++ ;
+//                S[unit] = 0 ;
+//            }
+//            gp_sym++ ;
+//            unit++ ;
+//        }
+        if (!symetrie) {
+            for (int i = 0 ; i < n ; i++) {
+                sym[i] = 1 ;
+                n_k[i] = i;
+            }
+            n_sym=n;
+        }
+    }
+
+
+    //init
+    fichier << "Init = [ " ;
+    int count = 0 ;
+    int i=0 ;
+    while (i < n) {
+        int init = rand() % 2  ;
+        for (int j = 0 ; j < sym[count]; j++) {
+            fichier << init << " " ;
             i++ ;
         }
-        fichier << "]" << endl ;
+        count++ ;
+    }
+    fichier << "]" << endl ;
 
 
-        fichier << "L = [ " ;
-        for (int i = 0 ; i < nbGen ; i++) {
-            for (int j = 0 ; j < nb_of_gen[i]; j++) {
-                fichier << L[i] << " " ;
+    // Gestion corrélation type littérature
+    if (bloc<=1) {
+
+        genCorrCoef(L, cp, -0.9, n, 0, n-1) ;
+        correle2a2(L, Pmax, 0.9, 0, n-1) ;
+        correle2a2(Pmax, Pmin, 0.9, 0, n-1) ;
+        correle2a2(Pmin, c0, 0.8, 0, n-1) ;
+
+        //Couts décorrélés du reste
+        if (cat == 2) {
+            for (int i = 0 ; i < n ; i++) {
+                cp[i] = (double) (rand()/(double) RAND_MAX) ;
+                c0[i] = (double) (rand()/(double) RAND_MAX) ;
             }
         }
-        fichier << "]" << endl ;
 
-        fichier << "l = [ " ;
-        for (int i = 0 ; i < nbGen ; i++) {
-            for (int j = 0 ; j < nb_of_gen[i]; j++) {
-                fichier << L[i] << " " ;
+        setInterval(L, 10*pas, 2*pas, 0, n-1) ;
+        setInterval(cp, 42, 8, 0, n-1) ;
+        setInterval(c0, 250, 30, 0, n-1) ;
+        setInterval(Pmin, 100, 8, 0, n-1) ;
+
+
+        //Pmax entre 20 et 420, supérieur à Pmin
+        for (int i = 0 ; i < n ; i++) {
+            Pmax[i] = fmax(Pmax[i]*400 + 20, Pmin[i]);
+        }
+
+        //TPR instances
+        /* double factor = 1;
+        for (int i = 0 ; i < n ; i++) {
+            Pmin[i] = factor*Pmax[i] ;
+        }*/
+
+        //cf aléatoire, non corrélé, entre 7 et 70
+        for (int i = 0 ; i < n ; i++) {
+            cf[i] = (double) (rand()/(double) RAND_MAX) ;
+            cf[i] = cf[i]*63 + 7;
+        }
+
+
+        /*if (Pmin_Pmax_dizaines) {
+            cout << "ici" << endl ;
+            for (int i = 0 ; i < n ; i++) {
+                int Pm = round(Pmin[i]);
+                int r = Pm % 10 ;
+                if ( r != 0) {
+                    cout << "r : " << r << endl ;
+                    if ( r >= 5) {
+                        Pmin[i] = Pm + 10 - r ;
+                    }
+                    else {
+                        Pmin[i] = Pm - r ;
+                    }
+                }
+            }
+        }*/
+
+
+        //Si instances 0-1 (Pmin = Pmax)
+        if (cat == 1) {
+            for (int i = 0 ; i < n ; i++) {
+                Pmax[i] = Pmin[i] ;
             }
         }
-        fichier << "]" << endl ;
 
-        fichier << "Pmin = [ " ;
-        for (int i = 0 ; i < nbGen ; i++) {
-            for (int j = 0 ; j < nb_of_gen[i]; j++) {
-                fichier << Pmin[i] << " " ;
+        //Si unit-UCP
+        if (bloc==0) {
+            for (int i = 0 ; i < n ; i++) {
+                Pmin[i] = 1 ;
+                Pmax[i] = 1 ;
             }
         }
-        fichier << "]" << endl ;
 
 
-        fichier << "Pmax = [ " ;
-        for (int i = 0 ; i < nbGen ; i++) {
-            for (int j = 0 ; j < nb_of_gen[i]; j++) {
-                fichier << Pmax[i] << " " ;
+
+    }
+
+    int nc = 0 ;
+    int nf = 0 ;
+    int nt = 0 ;
+
+
+    if (bloc==4) { // intra site sans demande
+
+        double** c0_mat = new double*[n] ;
+        double** cf_mat = new double*[n];
+
+        for (int i = 0 ; i < n ; i++) {
+            c0_mat[i] = new double[T] ;
+            cf_mat[i] = new double[T] ;
+        }
+
+
+        double* DemandCosts = setDemand(demande, T/pas, pas);
+
+        for (int t = 0 ; t < T ; t++) {
+
+            if (DemandCosts[t] > 100) {
+                DemandCosts[t] = 100 ;
+            }
+
+            if (DemandCosts[t] < 0) {
+                DemandCosts[t] = 0 ;
+            }
+
+            DemandCosts[t]=DemandCosts[t]/100 ;
+        }
+
+
+        genCorrCoef(L, cp, -0.9, n, 0, n-1) ;
+        correle2a2(L, Pmax, 0.9, 0, n-1) ;
+        correle2a2(Pmax, Pmin, 0.9, 0, n-1) ;
+        correle2a2(Pmin, c0, 0.8, 0, n-1) ;
+
+
+        //cf corrélés à la demande
+        for (int i=0 ; i<n ; i++) {
+            correle2a2(DemandCosts, cf_mat[i], 0.8, 0, T-1) ;
+        }
+
+        //Couts décorrélés du reste
+        for (int i = 0 ; i < n ; i++) {
+            cp[i] = (double) (rand()/(double) RAND_MAX) ;
+            for (int t=0 ; t < T ; t++) {
+                c0_mat[i][t] = (double) (rand()/(double) RAND_MAX) ;
             }
         }
-        fichier << "]" << endl ;
 
 
-        fichier << "CostLow = [ " ;
+        //cf aléatoire, non corrélé, entre 1 et 100
+        for (int i = 0 ; i < n ; i++) {
+            cf[i] = (double) (rand()/(double) RAND_MAX) ;
+            cf[i] = cf[i]*100 - 50;
+        }
+
+        //l aléatoire
+        for (int i = 0 ; i < n ; i++) {
+            l[i] = (double) (rand()/(double) RAND_MAX) ;
+            l[i] = l[i]*8*pas + 2*pas;
+        }
+
+        setInterval(L, 10*pas, 2*pas, 0, n-1) ;
+        setInterval(cp, 50, -50, 0, n-1) ;
+        setInterval(c0, 100, -100, 0, n-1) ;
+
+    }
+
+
+    //Intra site
+    /* for (int i = 0 ; i <n ; i++) {
+        S[i] = i ;
+    }
+
+    if (intra==1) {
+        double nombre = (double) (rand()/(double) RAND_MAX) ;
+        nS = nombre*n ;
+
+        for (int i = 0 ; i <n ; i++) {
+            nombre = (double) (rand()/(double) RAND_MAX) ;
+            S[i] = ceil(nombre*nS) ;
+        }
+
+    }*/
+
+    //Demande
+    double* Demand = setDemand(demande, T/pas, pas);
+
+    double sommePmax = 0 ;
+    for (int i = 0 ; i <n ; i++) {
+        for (int j = 0 ; j < sym[i] ; j++) {
+            sommePmax += round(Pmax[i]) ;
+        }
+    }
+
+    for (int t = 0 ; t < T ; t++) {
+        if (Demand[t] > 100) {
+            Demand[t] = 100 ;
+        }
+        if (Demand[t] < 0) {
+            Demand[t] = 0 ;
+        }
+        Demand[t] *= sommePmax/100 ;
+    }
+
+
+
+
+
+    //Sortie
+
+    fichier << "L = [ " ;
+    for (int i = 0 ; i <n ; i++) {
+        for (int j = 0 ; j < sym[i]; j++) {
+            fichier << round(L[i]) << " " ;
+        }
+    }
+    fichier << "]" << endl ;
+
+    fichier << "l = [ " ;
+    for (int i = 0 ; i <n ; i++) {
+        for (int j = 0 ; j < sym[i]; j++) {
+            if (bloc == 1) {
+                fichier << round(L[i]) << " " ;
+            }
+            else {
+                fichier << round(l[i]) << " " ;
+            }
+        }
+    }
+    fichier << "]" << endl ;
+
+    fichier << "Pmin = [ " ;
+    for (int i = 0 ; i <n ; i++) {
+        for (int j = 0 ; j < sym[i]; j++) {
+            fichier << round(Pmin[i]) << " " ;
+        }
+    }
+    fichier << "]" << endl ;
+
+    fichier << "Pmax = [ " ;
+    for (int i = 0 ; i <n ; i++) {
+        for (int j = 0 ; j < sym[i]; j++) {
+            fichier << round(Pmax[i]) << " " ;
+        }
+    }
+    fichier << "]" << endl ;
+
+    if (bloc != 4) {
+
+        fichier << "cf = [ " ;
         for (int i = 0 ; i <n ; i++) {
             for (int j = 0 ; j < sym[i]; j++) {
-                fichier << CostLow[i] << " " ;
+                fichier << cf[i] << " " ;
             }
         }
         fichier << "]" << endl ;
+
 
         fichier << "c0 = [ " ;
         for (int i = 0 ; i <n ; i++) {
             for (int j = 0 ; j < sym[i]; j++) {
-                fichier << c0[i] << " " ;
+                //fichier << round(c0[i]*(1+ (j+1)*(j+2)*0.5*0.005)) << " " ;
+                fichier << round(c0[i]) << " " ;
             }
         }
         fichier << "]" << endl ;
+    }
 
-        fichier << "CostLow = [ " ;
-        for (int i = 0 ; i <n ; i++) {
-            for (int j = 0 ; j < sym[i]; j++) {
-                fichier << CostLow[i] << " " ;
-            }
+    else {
+
+    }
+
+
+    fichier << "cp = [ " ;
+    for (int i = 0 ; i <n ; i++) {
+        for (int j = 0 ; j < sym[i]; j++) {
+            fichier << cp[i] << " " ;
         }
-        fichier << "]" << endl ;
+    }
+    fichier << "]" << endl ;
+
+    fichier << "D = [ " ;
+    for (int i = 0 ; i <T ; i++) {
+        fichier << round(Demand[i]) << " " ;
+    }
+    fichier << "]" << endl ;
+
+    fichier << "K = " << n_sym+1 << endl ;
+
+    fichier << "nk = [ " ;
+    for (int i = 0 ; i <n ; i++) {
+        fichier << n_k[i] << " " ;
+    }
+    fichier << "]" << endl ;
+
+
+    fichier << "First = [ " ;
+    for (int i = 0 ; i <n ; i++) {
+        fichier << First[i] << " " ;
+    }
+    fichier << "]" << endl ;
+
+    fichier << "Last = [ " ;
+    for (int i = 0 ; i <n ; i++) {
+        fichier << Last[i] << " " ;
+    }
+    fichier << "]" << endl ;
 
 
 
+//    fichier << "nS = " << nS << endl ;
+
+//    fichier << "S = [ " ;
+//    for (int i = 0 ; i <n ; i++) {
+//        fichier << S[i] << " " ;
+//    }
+//    fichier << "]" << endl ;
 
 
-        fichier << "D = [ " ;
-        for (int i = 0 ; i <T ; i++) {
-            fichier << round(Demand[i]) << " " ;
-        }
-        fichier << "]" << endl ;
+    ///// SITE = GROUPE DE SYMETRIE
+        fichier << "nS = " << n_sym+1 << endl ;
 
-        fichier << "K = " << n_sym+1 << endl ;
-
-        fichier << "nk = [ " ;
-        for (int i = 0 ; i <n ; i++) {
-            fichier << n_k[i] << " " ;
-        }
-        fichier << "]" << endl ;
-
-
-        fichier << "First = [ " ;
+        fichier << "S = [ " ;
         for (int i = 0 ; i <n ; i++) {
             fichier << First[i] << " " ;
         }
         fichier << "]" << endl ;
 
-        fichier << "Last = [ " ;
-        for (int i = 0 ; i <n ; i++) {
-            fichier << Last[i] << " " ;
-        }
-        fichier << "]" << endl ;
+}
 
 
-        fichier << "nS = " << nS << endl ;
+int main(int argc, char** argv) {
+    srand(time(NULL));
 
-        fichier << "S = [ " ;
-        for (int i = 0 ; i <n ; i++) {
-            fichier << S[i] << " " ;
-        }
-        fichier << "]" << endl ;
+    int demande_type; // = 3;
+    int symetrie; //=5; // facteur de symetrie  \in [1, n]: plus il est grand, moins il y a de symetries. Mais si =n, alors un seul groupe de symétrie. Si =0: pas de symétries
+    int cat; // = 1;
+    int bloc; // =1;
+    int n; //=15 ;
+    int id ; //;
+    int intra; //=1;
+    int T; //=48;
 
+    if (argc>1) {
+        n = atoi(argv[1]);
+        T = atoi(argv[2]);
+        bloc = atoi(argv[3]);
+        demande_type = atoi(argv[4]);
+        symetrie = atoi(argv[5]);
+        cat = atoi(argv[6]);
+        intra = atoi(argv[7]);
+        id = atoi(argv[8]);
     }
 
 
-} // fin for inst
 
 
-return 0;
+//    n=10 ;
+//    for (T=24 ; T <=48 ; T*=2) {
+//        for (id=1; id <=20 ; id++) {
+//            generation(n, T, demande_type, symetrie, cat, bloc, id, intra) ;
+//        }
+//    }
+
+//    n=20;
+//    for (T=24 ; T <=48 ; T*=2) {
+//        for (id=1; id <=20 ; id++) {
+//            generation(n, T, demande_type, symetrie, cat, bloc, id, intra) ;
+//        }
+//    }
+
+    T=24;
+        for (id=1; id <=20 ; id++) {
+            generation(n, T, demande_type, symetrie, cat, bloc, id, intra) ;
+        }
+
+
+    return 0;
 }
-
-/*
-
-        ifstream file2("result_trait.txt", ios::in);
-
-        for (int k = 0 ; k < 4 ; k++) {
-
-                fichier << "\\hline" << endl ;
-                fichier << "(" << N[k] << "," << T[k] << ") " ;
-
-                int sym_start=4 ;
-                if (N[k] == 15) {
-                        sym_start=3 ;
-                }
-                for (int sym=sym_start ; sym >= 2 ; sym--) {
-
-                        fichier << " & F = " << sym ;
-
-                        double guff_double ;
-                        int guff_int ;
-                        char guff_char ;
-
-                        // Sorties et indicateurs pour le lot de 20 instances
-
-                        int nb_solved[nbMethods] ;
-
-                        double gap_impr_dof[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-                        double gap_impr_mob[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-
-                        double cpu_impr_dof[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-                        double cpu_impr_mob[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-
-                        double node_impr_dof[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-                        double node_impr_mob[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-
-                        int nb_one_ended_dof[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-                        double nb_one_ended_mob[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-
-                        int nb_both_ended_dof[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-                        double nb_both_ended_mob[2] = {0,0} ; // default Cplex et Callback Cplex vs DOF
-
-                        string ligne;
-                        int n;
-                        int T;
-                        int sym ;
-
-                        int id;
-                        double opt ;
-                        int fix ;
-
-                        double fixTime ;
-                        int met ;
-
-                        double meanFixs[nbMethods]  ;
-                        double meanCPU[nbMethods] ;
-                        double meanNodes[nbMethods]
-
-                        for (int i=0 ; i < nbMethods ; i ++) {
-                                meanCPU[i] = 0 ;
-                                meanFixs[i] = 0 ;
-                                nb_solved[i] = 0 ;
-                                meanNodes[i] = 0 ;
-                        }
-
-                        ///////// Extraction des données ///////
-
-                        int test = 0;
-                        while (test < nTests) {
-
-                                double gap[nbMethods]  ;
-                                double nodes[nbMethods] ;
-                                double cpu[nbMethods] ;
-
-                                for (int i=0 ; i < nbMethods ; i ++) {
-                                        gap[i] = 0;
-                                        nodes[i] = 0;
-                                        cpu[i] = 0;
-                                }
-
-                                for (int m = 0 ; m < nbMethods ; m++) {
-
-                                        file2 >> met ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> n ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> T ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> sym ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> guff_int ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> guff_int ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> guff_double ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> id ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> opt ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> gap[m];
-                                        file2 >> guff_char ;
-                                        file2 >> guff_char ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> nodes[m] ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> fix ;
-                                        file2 >> guff_char ;
-
-                                        file2 >> fixTime;
-                                        file2 >> guff_char ;
-
-                                        file2 >> cpu[m] ;
-                                        file2 >> guff_char ;
-
-                                        getline(file2, ligne);
-
-
-                                        //affichage de controle
-                                        fichier2 << met <<  " & " << n << " & " << T  << " & " << sym << " & " << id ;
-                                        fichier2 << " & " << opt ;
-                                        fichier2.precision(3);
-                                        fichier2 << " & " << gap[m] ;
-                                        fichier2.precision(6);
-                                        fichier2 << " & " << nodes[m] ;
-                                        fichier2 << " & " << fix ;
-                                        fichier2 <<  " & " << fixTime ;
-                                        fichier2 << " & " << cpu[m] ;
-                                        fichier2 <<" \\\\ " << endl ;
-
-                                        meanFixs[m] += fix ;
-                                        meanNodes[m] += nodes[m] ;
-                                }
-
-                                fichier2 << " \\hline" << endl ;
-                                //Ligne vide
-                                getline(file2, ligne);
-
-                                test++ ;
-
-                                /// Mise à jour des indicateurs pour le test précédent ///
-
-                                for (int i = 0 ; i <= 4 ; i++) {
-                                        if (cpu[i] < 3600) {
-                                                nb_solved[i] ++ ;
-                                                meanCPU[i] += cpu[i] ;
-                                        }
-                                }
-
-                                cout << "Instance id : " << test << endl ;
-
-                                for (int i = 0 ; i <= 1 ; i++) {
-
-                                        // instances qui terminent
-                                        if ((cpu[i] < 3600) && (cpu[2] < 3600)) {
-                                                nb_both_ended_mob[i] ++ ;
-                                                nb_one_ended_mob[i] ++ ;
-                                        }
-                                        else if ((cpu[i] < 3600) || (cpu[2] < 3600)) {
-                                                nb_one_ended_mob[i] ++ ;
-                                        }
-                                        if ((cpu[i] < 3600) && (cpu[3] < 3600)) {
-                                                nb_both_ended_dof[i] ++ ;
-                                                nb_one_ended_dof[i] ++ ;
-                                        }
-                                        else if ((cpu[i] < 3600) || (cpu[3] < 3600)) {
-                                                nb_one_ended_dof[i] ++ ;
-                                        }
-
-                                        //gap improvement
-                                        if ((cpu[i] > 3600) && (cpu[2] > 3600)) {
-                                                gap_impr_mob[i] += 2*(gap[i] - gap[2]) / (gap[i] + gap[2]) ;
-                                        }
-                                        if ((cpu[i] > 3600) && (cpu[3] > 3600)) {
-                                                gap_impr_dof[i] += 2*(gap[i] - gap[3]) / (gap[i] + gap[3]) ;
-                                        }
-
-                                        //node improvement
-                                        if ((cpu[i] < 3600) && (cpu[2] < 3600) && (nodes[i] + nodes[2] > 0) ) {
-                                                node_impr_mob[i] += 2*(nodes[i] - nodes[2]) / (nodes[i] + nodes[2]) ;
-                                        }
-                                        if ((cpu[i] < 3600) && (cpu[3] < 3600) && (nodes[i] + nodes[3] > 0) ) {
-                                                node_impr_dof[i] += 2*(nodes[i] - nodes[3]) / (nodes[i] + nodes[3]) ;
-                                        }
-
-
-                                        //cpu improvement
-                                        if ((cpu[i] < 3600)  || (cpu[2] < 3600)) {
-                                                if (i==1) {
-                                                cout << "cpu impr mob : " << 2*(cpu[i] - cpu[2]) / (cpu[i] + cpu[2]) << endl ;
-                                                }
-                                                cpu_impr_mob[i] += 2*(cpu[i] - cpu[2]) / (cpu[i] + cpu[2]) ;
-
-                                        }
-
-                                        if (i==1) {
-                                        cout << "cpu callback : " << cpu[1] << endl ;
-                                        cout << "cpu dof : " << cpu[3] << endl ;
-                                        }
-                                        if ( (cpu[i] < 3600) || (cpu[3] < 3600)) {
-                                                cpu_impr_dof[i] += 2*(cpu[i] - cpu[3]) / (cpu[i] + cpu[3]) ;
-
-                                                if (i==1) {
-
-                                                double impr = 2*(cpu[i] - cpu[3]) / (cpu[i] + cpu[3]) ;
-                                                cout << "cpu impr dof : " <<  impr << endl ;
-
-                                                }
-
-                                        }
-                                }
-
-                                cout << endl ;
-
-                        }
-
-
-                                //////// Affichage sorties pour ce lot (n,T), F //////////
-
-                        for (int i=0 ; i <= 1 ; i++) {
-                                if (nb_one_ended_mob[i] < 20) {
-                                        gap_impr_mob[i] /= 20 - nb_one_ended_mob[i] ;
-                                }
-                                if (nb_one_ended_dof[i] < 20) {
-                                        gap_impr_dof[i] /= 20 - nb_one_ended_dof[i] ;
-                                }
-
-                                if (nb_both_ended_mob[i] > 0) {
-                                        node_impr_mob[i] /= nb_both_ended_mob[i] ;
-                                }
-                                if (nb_both_ended_dof[i] > 0) {
-                                        node_impr_dof[i] /= nb_both_ended_dof[i] ;
-                                }
-
-                                // Pour l'amélioration du CPU; les instances non terminées comptent pour 0%
-
-                                cpu_impr_mob[i] /=20;
-
-                                cpu_impr_dof[i] /= 20;
-
-                        }
-
-                        for (int m=0 ; m < 4 ; m++) {
-                                meanNodes[m] /= 20 ;
-                                meanCPU[m] /= 20 ;
-                                meanFixs[m] /= 20 ;
-                        }
-                        fichier.precision(3);
-
-
-                        for (int m=0 ; m < 4 ; m++) {
-
-                                if (m==0) {
-                                        fichier << " & DC & " ;
-                                }
-                                if (m==1) {
-                                        fichier << " & & CC & " ;
-                                }
-                                if (m==2) {
-                                        fichier << " & & MOB & " ;
-                                }
-                                if (m==3) {
-                                        fichier << " & & DOF & " ;
-                                }
-                        }
-
-                        fichier << " & MOB & " << nb_solved[2] ;
-                        for (int i=0 ; i <= 1 ; i++) {
-                        fichier << " & " << nb_solved[2] - nb_solved[i] <<  " & " << 100*gap_impr_mob[i] <<  " \\% & " << 100*node_impr_mob[i] << " \\% & " << 100* cpu_impr_mob[i]  << " \\%";
-                        }
-                        fichier << " \\\\" << endl ;
-
-                        fichier << "\\hhline{~~----------}" << endl ;
-
-                        fichier << " & & DOF & " << nb_solved[3] ;
-                        for (int i=0 ; i <= 1 ; i++) {
-                        fichier << " & " << nb_solved[3] - nb_solved[i] <<  " & " << 100*gap_impr_dof[i] <<  " \\% & " << 100*node_impr_dof[i] << " \\% & " << 100*cpu_impr_dof[i] << " \\%";
-                        }
-                        fichier <<  " \\\\" << endl ;
-
-                        if (sym != 2) {
-                                        fichier << "\\hhline{~===========}" << endl ;
-                        }
-                        else {
-                                        fichier << "\\hline" << endl ;
-
-                        }
-                }
-        }*/
-
-
-
-
-
