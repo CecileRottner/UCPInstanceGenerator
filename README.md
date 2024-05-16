@@ -8,13 +8,13 @@ n_T_1_demand_sym_bin_intra_id.txt
 ```
 
 where :
-- n : number of production units
-- T : number of time periods
-- demand : type of production demand (3 means the classical form "two peak per day")
-- sym : level of symmetry in the instance (0 means no symmetry, and x means there are in average n/x identical units)
-- bin : equals 1 if instances are such that Pmin=Pmax for all production units (production levels are then binary), equals 0 otherwise
-- intra : equals 1 if instances are subject to "intra site" constraints (ie units are grouped on geographical sites and there is at most one start up per time period on each site)
-- id : unique identifier of the instance
+- n (int) : number of production units
+- T (int) : number of time periods
+- demand (int) : type of production demand (3 means the classical form "two peak per day")
+- sym (int) : level of symmetry in the instance (0 means no symmetry, and x means there are in average n/x identical units)
+- bin (bool) : equals 1 if instances are such that Pmin=Pmax for all production units (production levels are then binary), equals 0 otherwise
+- intra (bool) : equals 1 if instances are subject to "intra site" constraints (ie units are grouped on geographical sites and there is at most one start up per time period on each site)
+- id (int) : unique identifier of the instance
 
 
 ## Instance format
